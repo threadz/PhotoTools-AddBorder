@@ -10,7 +10,7 @@ SETTINGS_FILE = Path.home() / ".white_border_settings.json"
 
 DEFAULT_PERCENTAGE = 10.0
 MIN_PERCENTAGE = 0.5
-MAX_PERCENTAGE = 100.0
+MAX_PERCENTAGE = 60.0
 
 
 def load_settings():
