@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageTk
 
 SETTINGS_FILE = Path.home() / ".white_border_settings.json"
 
@@ -47,7 +47,9 @@ class WhiteBorderApp:
     def __init__(self, root):
         self.root = root
         self.root.title("White Border Utility")
-        self.root.resizable(False, False)
+        # Allow the window and its contents to resize with the user.
+        self.root.resizable(True, True)
+        self.root.minsize(620, 650)
 
         self.settings = load_settings()
 
@@ -71,9 +73,12 @@ class WhiteBorderApp:
         self.output_var = tk.StringVar()
 
         self.source_path = None
+        self.preview_source = None
+        self.preview_photo = None
         self.auto_output = True
         self.last_auto_output = ""
         self.busy = False
+        self.last_output_path = None
 
         self.build_ui()
         self.root.bind("<Return>", lambda event: self.add_border())
@@ -86,8 +91,13 @@ class WhiteBorderApp:
         self.root.geometry(f"+{x}+{y}")
 
     def build_ui(self):
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+
         main = ttk.Frame(self.root, padding=18)
         main.grid(row=0, column=0, sticky="nsew")
+        main.columnconfigure(0, weight=1)
+        main.rowconfigure(7, weight=1)  # Give the preview the extra height.
 
         ttk.Label(
             main, text="Source image:"
@@ -135,10 +145,11 @@ class WhiteBorderApp:
 
         percentage_frame = ttk.Frame(main)
         percentage_frame.grid(
-            row=5, column=0, columnspan=2, sticky="w"
+            row=5, column=0, columnspan=2, sticky="ew"
         )
+        percentage_frame.columnconfigure(0, weight=1)
 
-        # Border percentage slider
+        # Border percentage slider and live percentage display
         self.percentage_slider = tk.Scale(
             percentage_frame,
             from_=MIN_PERCENTAGE,
@@ -150,7 +161,7 @@ class WhiteBorderApp:
             showvalue=False,
             length=350,
         )
-        self.percentage_slider.grid(row=0, column=0, sticky="w")    
+        self.percentage_slider.grid(row=0, column=0, sticky="ew")
 
         self.percentage_display = tk.StringVar(
             value=f"{float(self.percentage_var.get()):.1f}%"
@@ -159,22 +170,37 @@ class WhiteBorderApp:
         ttk.Label(
             percentage_frame,
             textvariable=self.percentage_display
-        ).grid(row=0, column=1, padx=(5, 0))
+        ).grid(row=0, column=1, padx=(8, 0))
+
+        ttk.Label(main, text="Live preview:").grid(
+            row=6, column=0, columnspan=2,
+            sticky="w", pady=(12, 5)
+        )
+
+        self.preview_frame = ttk.Frame(
+            main, height=260, relief="sunken", borderwidth=1
+        )
+        self.preview_frame.grid(
+            row=7, column=0, columnspan=2, sticky="nsew"
+        )
+        self.preview_frame.grid_propagate(False)
+        self.preview_frame.columnconfigure(0, weight=1)
+        self.preview_frame.rowconfigure(0, weight=1)
+
+        self.preview_label = ttk.Label(
+            self.preview_frame,
+            text="Select an image to preview it",
+            anchor="center",
+            justify="center"
+        )
+        self.preview_label.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        self.preview_frame.bind("<Configure>", self.preview_resized)
 
         ttk.Separator(
             main, orient="horizontal"
         ).grid(
-            row=6, column=0, columnspan=2,
+            row=8, column=0, columnspan=2,
             sticky="ew", pady=18
-        )
-
-        self.add_button = ttk.Button(
-            main, text="Add Border",
-            command=self.add_border
-        )
-        self.add_button.grid(
-            row=7, column=0, columnspan=2,
-            sticky="ew", ipady=5
         )
 
         self.status_var = tk.StringVar(
@@ -187,31 +213,53 @@ class WhiteBorderApp:
             justify="left"
         )
         self.status_label.grid(
-            row=8, column=0, columnspan=2,
-            sticky="w", pady=(14, 8)
+            row=10, column=0, columnspan=2,
+            sticky="ew", pady=(14, 8)
+        )
+        self.root.bind("<Configure>", self.window_resized, add="+")
+
+        actions = ttk.Frame(main)
+        actions.grid(
+            row=11, column=0, columnspan=2, sticky="ew"
+        )
+        for column in range(3):
+            actions.columnconfigure(column, weight=1, uniform="actions")
+
+        self.add_button = ttk.Button(
+            actions, text="Add Border",
+            command=self.add_border, width=20
+        )
+        self.add_button.grid(
+            row=0, column=0
         )
 
-        # Bottom row buttons
         self.folder_button = ttk.Button(
-            main,
+            actions,
             text="Open Output Folder",
             command=self.open_output_folder,
             state="disabled",
+            width=20
         )
         self.folder_button.grid(
-            row=9, column=0, sticky="w"
+            row=0, column=1
         )
 
         self.close_button = ttk.Button(
-            main,
-            text="Close",
-            command=self.root.destroy,
+            actions, text="Close", command=self.root.destroy, width=20
         )
         self.close_button.grid(
-            row=9, column=1, sticky="e"
+            row=0, column=2
         )
 
+        # Source/output entries and the preview stretch with the window.
         main.columnconfigure(0, weight=1)
+
+    def window_resized(self, event=None):
+        # Keep long status messages readable as the window width changes.
+        if event is not None and event.widget is self.root:
+            width = max(300, self.root.winfo_width() - 60)
+            if hasattr(self, "status_label"):
+                self.status_label.configure(wraplength=width)
 
     def output_edited(self, event=None):
         if self.output_var.get() != self.last_auto_output:
@@ -240,11 +288,58 @@ class WhiteBorderApp:
 
     def percentage_changed(self, value=None):
         try:
-            percentage = float(value)
+            percentage = float(
+                value if value is not None else self.percentage_var.get()
+            )
             self.percentage_display.set(f"{percentage:.1f}%")
             self.refresh_suggested_output()
+            self.update_preview()
         except (TypeError, ValueError):
             pass
+
+    def preview_resized(self, event=None):
+        """Refresh the preview when the available preview area changes size."""
+        if self.preview_source is not None:
+            self.update_preview()
+
+    def update_preview(self):
+        """Render a fitted preview using the preview area's current dimensions."""
+        if self.preview_source is None:
+            return
+
+        try:
+            percentage = float(self.percentage_var.get())
+            source = self.preview_source
+            width, height = source.size
+            border_original = min(width, height) * percentage / 100.0
+
+            # Leave a little room inside the preview frame for its padding.
+            available_width = max(80, self.preview_frame.winfo_width() - 14)
+            available_height = max(80, self.preview_frame.winfo_height() - 14)
+
+            # Fit the complete bordered image without making a huge copy of
+            # the original photograph while the user drags the slider.
+            scale = min(
+                available_width / (width + 2 * border_original),
+                available_height / (height + 2 * border_original)
+            )
+            image_width = max(1, round(width * scale))
+            image_height = max(1, round(height * scale))
+            border_pixels = max(0, round(border_original * scale))
+
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            thumbnail = source.resize(
+                (image_width, image_height), resampling
+            )
+            preview_image = ImageOps.expand(
+                thumbnail, border=border_pixels, fill="white"
+            )
+            self.preview_photo = ImageTk.PhotoImage(preview_image)
+            self.preview_label.configure(image=self.preview_photo, text="")
+        except (TypeError, ValueError, tk.TclError) as error:
+            self.preview_label.configure(
+                image="", text=f"Unable to preview image:\n{error}"
+            )
 
     def browse_source(self):
         filename = filedialog.askopenfilename(
@@ -263,6 +358,19 @@ class WhiteBorderApp:
         self.source_path = Path(filename)
         self.source_var.set(str(self.source_path))
         self.last_folder = str(self.source_path.parent)
+
+        try:
+            with Image.open(self.source_path) as original:
+                self.preview_source = ImageOps.exif_transpose(
+                    original
+                ).convert("RGB")
+            self.update_preview()
+        except Exception as error:
+            self.preview_source = None
+            self.preview_photo = None
+            self.preview_label.configure(
+                image="", text=f"Unable to preview image:\n{error}"
+            )
 
         self.settings["last_folder"] = self.last_folder
         save_settings(self.settings)
