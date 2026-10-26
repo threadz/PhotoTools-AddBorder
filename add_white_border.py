@@ -3,12 +3,13 @@ import os
 import json
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, filedialog
-from PIL import Image, ImageOps, ImageTk
+from tkinter import ttk, filedialog, colorchooser
+from PIL import Image, ImageColor, ImageOps, ImageTk
 
 SETTINGS_FILE = Path.home() / ".white_border_settings.json"
 
 DEFAULT_PERCENTAGE = 10.0
+DEFAULT_BORDER_COLOR = "#ffffff"
 MIN_PERCENTAGE = 0.5
 MAX_PERCENTAGE = 60.0
 
@@ -43,10 +44,25 @@ def valid_percentage(value):
         return False
 
 
+def normalize_color(value):
+    if not isinstance(value, str):
+        return None
+
+    try:
+        rgb = ImageColor.getrgb(value)
+    except (TypeError, ValueError):
+        return None
+
+    if len(rgb) != 3:
+        return None
+
+    return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+
 class WhiteBorderApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("White Border Utility")
+        self.root.title("Image Border Utility")
         # Allow the window and its contents to resize with the user.
         self.root.resizable(True, True)
         self.root.minsize(620, 650)
@@ -65,6 +81,11 @@ class WhiteBorderApp:
         )
         if not valid_percentage(percentage):
             percentage = DEFAULT_PERCENTAGE
+
+        border_color = normalize_color(
+            self.settings.get("last_border_color", DEFAULT_BORDER_COLOR)
+        )
+        self.border_color = border_color or DEFAULT_BORDER_COLOR
 
         self.percentage_var = tk.StringVar(
             value=f"{float(percentage):.1f}"
@@ -97,7 +118,7 @@ class WhiteBorderApp:
         main = ttk.Frame(self.root, padding=18)
         main.grid(row=0, column=0, sticky="nsew")
         main.columnconfigure(0, weight=1)
-        main.rowconfigure(7, weight=1)  # Give the preview the extra height.
+        main.rowconfigure(9, weight=1)  # Give the preview the extra height.
 
         ttk.Label(
             main, text="Source image:"
@@ -172,8 +193,29 @@ class WhiteBorderApp:
             textvariable=self.percentage_display
         ).grid(row=0, column=1, padx=(8, 0))
 
-        ttk.Label(main, text="Live preview:").grid(
+        ttk.Label(main, text="Border colour:").grid(
             row=6, column=0, columnspan=2,
+            sticky="w", pady=(12, 5)
+        )
+
+        color_frame = ttk.Frame(main)
+        color_frame.grid(row=7, column=0, columnspan=2, sticky="w")
+        self.color_swatch = tk.Label(
+            color_frame,
+            width=5,
+            relief="solid",
+            borderwidth=1,
+            background=self.border_color
+        )
+        self.color_swatch.grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(
+            color_frame,
+            text="Choose colour...",
+            command=self.choose_border_color
+        ).grid(row=0, column=1)
+
+        ttk.Label(main, text="Live preview:").grid(
+            row=8, column=0, columnspan=2,
             sticky="w", pady=(12, 5)
         )
 
@@ -181,7 +223,7 @@ class WhiteBorderApp:
             main, height=260, relief="sunken", borderwidth=1
         )
         self.preview_frame.grid(
-            row=7, column=0, columnspan=2, sticky="nsew"
+            row=9, column=0, columnspan=2, sticky="nsew"
         )
         self.preview_frame.grid_propagate(False)
         self.preview_frame.columnconfigure(0, weight=1)
@@ -199,7 +241,7 @@ class WhiteBorderApp:
         ttk.Separator(
             main, orient="horizontal"
         ).grid(
-            row=8, column=0, columnspan=2,
+            row=10, column=0, columnspan=2,
             sticky="ew", pady=18
         )
 
@@ -213,14 +255,14 @@ class WhiteBorderApp:
             justify="left"
         )
         self.status_label.grid(
-            row=10, column=0, columnspan=2,
+            row=11, column=0, columnspan=2,
             sticky="ew", pady=(14, 8)
         )
         self.root.bind("<Configure>", self.window_resized, add="+")
 
         actions = ttk.Frame(main)
         actions.grid(
-            row=11, column=0, columnspan=2, sticky="ew"
+            row=12, column=0, columnspan=2, sticky="ew"
         )
         for column in range(3):
             actions.columnconfigure(column, weight=1, uniform="actions")
@@ -297,6 +339,26 @@ class WhiteBorderApp:
         except (TypeError, ValueError):
             pass
 
+    def choose_border_color(self):
+        _, selected_color = colorchooser.askcolor(
+            color=self.border_color,
+            parent=self.root,
+            title="Select border colour"
+        )
+        if selected_color is None:
+            return
+
+        border_color = normalize_color(selected_color)
+        if border_color is None:
+            self.status_var.set("Unable to use the selected border colour.")
+            return
+
+        self.border_color = border_color
+        self.color_swatch.configure(background=border_color)
+        self.settings["last_border_color"] = border_color
+        save_settings(self.settings)
+        self.update_preview()
+
     def preview_resized(self, event=None):
         """Refresh the preview when the available preview area changes size."""
         if self.preview_source is not None:
@@ -332,7 +394,7 @@ class WhiteBorderApp:
                 (image_width, image_height), resampling
             )
             preview_image = ImageOps.expand(
-                thumbnail, border=border_pixels, fill="white"
+                thumbnail, border=border_pixels, fill=self.border_color
             )
             self.preview_photo = ImageTk.PhotoImage(preview_image)
             self.preview_label.configure(image=self.preview_photo, text="")
@@ -442,7 +504,7 @@ class WhiteBorderApp:
             self.add_button.configure(state="disabled")
             self.folder_button.configure(state="disabled")
             self.root.config(cursor="watch")
-            self.status_var.set("Adding white border...")
+            self.status_var.set("Adding border...")
             self.root.update_idletasks()
 
             # Load image and correct EXIF orientation.
@@ -457,7 +519,7 @@ class WhiteBorderApp:
 
             # Expand equally on all four sides.
             bordered = ImageOps.expand(
-                image, border=border, fill="white"
+                image, border=border, fill=self.border_color
             )
 
             # Save as high-quality JPEG.
@@ -474,7 +536,8 @@ class WhiteBorderApp:
 
             self.last_output_path = output_path
             self.status_var.set(
-                "White border added successfully!\n"
+                "Border added successfully!\n"
+                f"Border colour: {self.border_color}\n"
                 f"Percentage: {percentage:.1f}%\n"
                 f"Border per edge: {border} pixels\n"
                 f"Original size: {width} x {height}\n"
