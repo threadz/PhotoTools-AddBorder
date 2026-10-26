@@ -6,7 +6,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, colorchooser
 from PIL import Image, ImageColor, ImageOps, ImageTk
 
-SETTINGS_FILE = Path.home() / ".white_border_settings.json"
+SETTINGS_FILE = Path.home() / ".addborder_settings.json"
+LEGACY_SETTINGS_FILE = Path.home() / ".white_border_settings.json"
 
 DEFAULT_PERCENTAGE = 10.0
 DEFAULT_BORDER_COLOR = "#ffffff"
@@ -15,13 +16,14 @@ MAX_PERCENTAGE = 60.0
 
 
 def load_settings():
-    try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as file:
-            settings = json.load(file)
-            if isinstance(settings, dict):
-                return settings
-    except (OSError, ValueError):
-        pass
+    for settings_file in (SETTINGS_FILE, LEGACY_SETTINGS_FILE):
+        try:
+            with open(settings_file, "r", encoding="utf-8") as file:
+                settings = json.load(file)
+                if isinstance(settings, dict):
+                    return settings
+        except (OSError, ValueError):
+            continue
     return {}
 
 
@@ -59,10 +61,10 @@ def normalize_color(value):
     return "#{:02x}{:02x}{:02x}".format(*rgb)
 
 
-class WhiteBorderApp:
+class AddBorderApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Image Border Utility")
+        self.root.title("Add Border")
         # Allow the window and its contents to resize with the user.
         self.root.resizable(True, True)
         self.root.minsize(620, 650)
@@ -572,7 +574,7 @@ class WhiteBorderApp:
 
 def main():
     root = tk.Tk()
-    WhiteBorderApp(root)
+    AddBorderApp(root)
     root.mainloop()
 
 

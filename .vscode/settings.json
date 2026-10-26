@@ -1,7 +1,7 @@
 {
     "python-envs.pythonProjects": [
         {
-            "path": "add_white_border.py",
+            "path": "AddBorder.py",
             "envManager": "ms-python.python:venv",
             "packageManager": "ms-python.python:pip"
         }

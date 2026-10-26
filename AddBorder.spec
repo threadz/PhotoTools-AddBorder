@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['d:/Users/John/OneDrive/Apps/AddWhiteBorder/add_white_border.py'],
+    ['d:/Users/John/OneDrive/Apps/AddWhiteBorder/AddBorder.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='add_white_border',
+    name='AddBorder',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
