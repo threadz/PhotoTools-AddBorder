@@ -4,13 +4,18 @@ import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, colorchooser
-from PIL import Image, ImageColor, ImageOps, ImageTk
+from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageOps, ImageTk
 
 SETTINGS_FILE = Path.home() / ".addborder_settings.json"
 LEGACY_SETTINGS_FILE = Path.home() / ".white_border_settings.json"
 
 DEFAULT_PERCENTAGE = 10.0
 DEFAULT_BORDER_COLOR = "#ffffff"
+DEFAULT_SHADOW_COLOR = "#000000"
+DEFAULT_SHADOW_OFFSET = 5
+DEFAULT_SHADOW_BLUR = 8
+DEFAULT_SHADOW_OPACITY = 50
+MAX_SHADOW_BLUR = 100
 MIN_PERCENTAGE = 0.5
 MAX_PERCENTAGE = 60.0
 
@@ -61,13 +66,73 @@ def normalize_color(value):
     return "#{:02x}{:02x}{:02x}".format(*rgb)
 
 
+def setting_integer(settings, key, default, minimum, maximum):
+    value = settings.get(key, default)
+    if isinstance(value, bool):
+        return default
+    try:
+        value = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return min(maximum, max(minimum, value))
+
+
+def render_bordered_image(
+    image,
+    border,
+    border_color,
+    shadow_enabled=False,
+    shadow_offset_x=0,
+    shadow_offset_y=0,
+    shadow_blur=0,
+    shadow_color=DEFAULT_SHADOW_COLOR,
+    shadow_opacity=100,
+):
+    border = max(0, int(border))
+    image = image.convert("RGB")
+    width, height = image.size
+    canvas_size = (width + 2 * border, height + 2 * border)
+    canvas = Image.new("RGB", canvas_size, border_color)
+
+    if shadow_enabled and border > 0 and shadow_opacity > 0:
+        offset_x = min(border, max(-border, int(shadow_offset_x)))
+        offset_y = min(border, max(-border, int(shadow_offset_y)))
+        mask = Image.new("L", canvas_size, 0)
+        shadow_left = border + offset_x
+        shadow_top = border + offset_y
+        ImageDraw.Draw(mask).rectangle(
+            (
+                shadow_left,
+                shadow_top,
+                shadow_left + width - 1,
+                shadow_top + height - 1,
+            ),
+            fill=255,
+        )
+        if shadow_blur > 0:
+            mask = mask.filter(ImageFilter.GaussianBlur(shadow_blur))
+        mask = mask.point(
+            lambda alpha: round(alpha * shadow_opacity / 100)
+        )
+
+        shadow_rgb = ImageColor.getrgb(shadow_color)
+        shadow = Image.new("RGBA", canvas_size, (*shadow_rgb, 255))
+        shadow.putalpha(mask)
+        canvas = Image.alpha_composite(canvas.convert("RGBA"), shadow).convert(
+            "RGB"
+        )
+
+    canvas.paste(image, (border, border))
+    return canvas
+
+
 class AddBorderApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Add Border")
         # Allow the window and its contents to resize with the user.
         self.root.resizable(True, True)
-        self.root.minsize(620, 650)
+        self.root.minsize(620, 780)
 
         self.settings = load_settings()
 
@@ -88,9 +153,40 @@ class AddBorderApp:
             self.settings.get("last_border_color", DEFAULT_BORDER_COLOR)
         )
         self.border_color = border_color or DEFAULT_BORDER_COLOR
+        shadow_color = normalize_color(
+            self.settings.get("last_shadow_color", DEFAULT_SHADOW_COLOR)
+        )
+        self.shadow_color = shadow_color or DEFAULT_SHADOW_COLOR
 
         self.percentage_var = tk.StringVar(
             value=f"{float(percentage):.1f}"
+        )
+        self.shadow_enabled_var = tk.BooleanVar(
+            value=self.settings.get("last_shadow_enabled") is True
+        )
+        self.shadow_x_var = tk.IntVar(
+            value=setting_integer(
+                self.settings, "last_shadow_x", DEFAULT_SHADOW_OFFSET,
+                -10000, 10000
+            )
+        )
+        self.shadow_y_var = tk.IntVar(
+            value=setting_integer(
+                self.settings, "last_shadow_y", DEFAULT_SHADOW_OFFSET,
+                -10000, 10000
+            )
+        )
+        self.shadow_blur_var = tk.IntVar(
+            value=setting_integer(
+                self.settings, "last_shadow_blur", DEFAULT_SHADOW_BLUR,
+                0, MAX_SHADOW_BLUR
+            )
+        )
+        self.shadow_opacity_var = tk.IntVar(
+            value=setting_integer(
+                self.settings, "last_shadow_opacity",
+                DEFAULT_SHADOW_OPACITY, 0, 100
+            )
         )
         self.source_var = tk.StringVar()
         self.output_var = tk.StringVar()
@@ -102,6 +198,7 @@ class AddBorderApp:
         self.last_auto_output = ""
         self.busy = False
         self.last_output_path = None
+        self.shadow_settings_expanded = True
 
         self.build_ui()
         self.root.bind("<Return>", lambda event: self.add_border())
@@ -120,7 +217,7 @@ class AddBorderApp:
         main = ttk.Frame(self.root, padding=18)
         main.grid(row=0, column=0, sticky="nsew")
         main.columnconfigure(0, weight=1)
-        main.rowconfigure(9, weight=1)  # Give the preview the extra height.
+        main.rowconfigure(10, weight=1)  # Give the preview the extra height.
 
         ttk.Label(
             main, text="Source image:"
@@ -216,8 +313,10 @@ class AddBorderApp:
             command=self.choose_border_color
         ).grid(row=0, column=1)
 
+        self.build_shadow_accordion(main, row=8)
+
         ttk.Label(main, text="Live preview:").grid(
-            row=8, column=0, columnspan=2,
+            row=9, column=0, columnspan=2,
             sticky="w", pady=(12, 5)
         )
 
@@ -225,7 +324,7 @@ class AddBorderApp:
             main, height=260, relief="sunken", borderwidth=1
         )
         self.preview_frame.grid(
-            row=9, column=0, columnspan=2, sticky="nsew"
+            row=10, column=0, columnspan=2, sticky="nsew"
         )
         self.preview_frame.grid_propagate(False)
         self.preview_frame.columnconfigure(0, weight=1)
@@ -243,7 +342,7 @@ class AddBorderApp:
         ttk.Separator(
             main, orient="horizontal"
         ).grid(
-            row=10, column=0, columnspan=2,
+            row=11, column=0, columnspan=2,
             sticky="ew", pady=18
         )
 
@@ -257,14 +356,14 @@ class AddBorderApp:
             justify="left"
         )
         self.status_label.grid(
-            row=11, column=0, columnspan=2,
+            row=12, column=0, columnspan=2,
             sticky="ew", pady=(14, 8)
         )
         self.root.bind("<Configure>", self.window_resized, add="+")
 
         actions = ttk.Frame(main)
         actions.grid(
-            row=12, column=0, columnspan=2, sticky="ew"
+            row=13, column=0, columnspan=2, sticky="ew"
         )
         for column in range(3):
             actions.columnconfigure(column, weight=1, uniform="actions")
@@ -298,6 +397,132 @@ class AddBorderApp:
         # Source/output entries and the preview stretch with the window.
         main.columnconfigure(0, weight=1)
 
+    def build_shadow_accordion(self, parent, row):
+        accordion = ttk.Frame(parent)
+        accordion.grid(row=row, column=0, columnspan=2, sticky="ew")
+        accordion.columnconfigure(1, weight=1)
+
+        ttk.Checkbutton(
+            accordion,
+            text="Enable Drop Shadow",
+            variable=self.shadow_enabled_var,
+            command=self.shadow_enabled_changed,
+        ).grid(row=0, column=0, sticky="w")
+        self.shadow_accordion_button = ttk.Button(
+            accordion,
+            text="Drop shadow settings  v",
+            command=self.toggle_shadow_settings,
+        )
+        self.shadow_accordion_button.grid(
+            row=0, column=1, sticky="ew", padx=(8, 0)
+        )
+
+        self.shadow_settings_frame = ttk.LabelFrame(
+            accordion, text="Drop shadow"
+        )
+        self.shadow_settings_frame.grid(
+            row=1, column=0, columnspan=2, sticky="ew", pady=(5, 0)
+        )
+        self.shadow_settings_frame.columnconfigure(1, weight=1)
+
+        self.shadow_x_slider = tk.Scale(
+            self.shadow_settings_frame,
+            from_=-10000,
+            to=10000,
+            resolution=1,
+            orient=tk.HORIZONTAL,
+            variable=self.shadow_x_var,
+            command=self.shadow_setting_changed,
+            label="X offset (pixels)",
+            showvalue=True,
+        )
+        self.shadow_x_slider.grid(
+            row=0, column=0, columnspan=2, sticky="ew", padx=8
+        )
+
+        self.shadow_y_slider = tk.Scale(
+            self.shadow_settings_frame,
+            from_=-10000,
+            to=10000,
+            resolution=1,
+            orient=tk.HORIZONTAL,
+            variable=self.shadow_y_var,
+            command=self.shadow_setting_changed,
+            label="Y offset (pixels)",
+            showvalue=True,
+        )
+        self.shadow_y_slider.grid(
+            row=1, column=0, columnspan=2, sticky="ew", padx=8
+        )
+
+        self.shadow_blur_slider = tk.Scale(
+            self.shadow_settings_frame,
+            from_=0,
+            to=MAX_SHADOW_BLUR,
+            resolution=1,
+            orient=tk.HORIZONTAL,
+            variable=self.shadow_blur_var,
+            command=self.shadow_setting_changed,
+            label="Blur (pixels)",
+            showvalue=True,
+        )
+        self.shadow_blur_slider.grid(
+            row=2, column=0, columnspan=2, sticky="ew", padx=8
+        )
+
+        shadow_color_frame = ttk.Frame(self.shadow_settings_frame)
+        shadow_color_frame.grid(
+            row=3, column=0, columnspan=2, sticky="w", padx=8, pady=4
+        )
+        ttk.Label(shadow_color_frame, text="Shadow colour:").grid(
+            row=0, column=0, padx=(0, 8)
+        )
+        self.shadow_color_swatch = tk.Label(
+            shadow_color_frame,
+            width=5,
+            relief="solid",
+            borderwidth=1,
+            background=self.shadow_color,
+        )
+        self.shadow_color_swatch.grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(
+            shadow_color_frame,
+            text="Choose colour...",
+            command=self.choose_shadow_color,
+        ).grid(row=0, column=2)
+
+        self.shadow_opacity_slider = tk.Scale(
+            self.shadow_settings_frame,
+            from_=0,
+            to=100,
+            resolution=1,
+            orient=tk.HORIZONTAL,
+            variable=self.shadow_opacity_var,
+            command=self.shadow_setting_changed,
+            label="Opacity (%)",
+            showvalue=True,
+        )
+        self.shadow_opacity_slider.grid(
+            row=4, column=0, columnspan=2, sticky="ew", padx=8
+        )
+
+        if self.preview_source is None:
+            self.shadow_x_slider.configure(state=tk.DISABLED)
+            self.shadow_y_slider.configure(state=tk.DISABLED)
+
+        if not self.shadow_settings_expanded:
+            self.shadow_settings_frame.grid_remove()
+
+    def toggle_shadow_settings(self):
+        self.shadow_settings_expanded = not self.shadow_settings_expanded
+        if self.shadow_settings_expanded:
+            self.shadow_settings_frame.grid()
+            label = "Drop shadow settings  v"
+        else:
+            self.shadow_settings_frame.grid_remove()
+            label = "Drop shadow settings  >"
+        self.shadow_accordion_button.configure(text=label)
+
     def window_resized(self, event=None):
         # Keep long status messages readable as the window width changes.
         if event is not None and event.widget is self.root:
@@ -318,9 +543,10 @@ class AddBorderApp:
 
         percentage = float(self.percentage_var.get())
         percentage_text = f"{percentage:.1f}".replace(".", "p")
+        shadow_suffix = "_ds" if self.shadow_enabled_var.get() else ""
         filename = (
             f"{self.source_path.stem}_bordered_"
-            f"{percentage_text}.jpg"
+            f"{percentage_text}{shadow_suffix}.jpg"
         )
         return str(self.source_path.parent / filename)
 
@@ -337,9 +563,85 @@ class AddBorderApp:
             )
             self.percentage_display.set(f"{percentage:.1f}%")
             self.refresh_suggested_output()
+            self.update_shadow_offset_limits()
             self.update_preview()
         except (TypeError, ValueError):
             pass
+
+    def shadow_offset_bound(self):
+        if self.preview_source is None or not valid_percentage(
+            self.percentage_var.get()
+        ):
+            return 0
+        width, height = self.preview_source.size
+        percentage = float(self.percentage_var.get())
+        return round(min(width, height) * percentage / 100.0)
+
+    def update_shadow_offset_limits(self):
+        if not hasattr(self, "shadow_x_slider"):
+            return
+        if self.preview_source is None:
+            self.shadow_x_slider.configure(state=tk.DISABLED)
+            self.shadow_y_slider.configure(state=tk.DISABLED)
+            return
+
+        border = self.shadow_offset_bound()
+        previous_x = self.shadow_x_var.get()
+        previous_y = self.shadow_y_var.get()
+        self.shadow_x_slider.configure(
+            from_=-border, to=border, state=tk.NORMAL
+        )
+        self.shadow_y_slider.configure(
+            from_=-border, to=border, state=tk.NORMAL
+        )
+
+        x_offset = min(border, max(-border, previous_x))
+        y_offset = min(border, max(-border, previous_y))
+        self.shadow_x_var.set(x_offset)
+        self.shadow_y_var.set(y_offset)
+        if x_offset != previous_x or y_offset != previous_y:
+            self.save_shadow_settings()
+
+    def save_shadow_settings(self):
+        self.settings["last_shadow_enabled"] = (
+            self.shadow_enabled_var.get()
+        )
+        self.settings["last_shadow_x"] = self.shadow_x_var.get()
+        self.settings["last_shadow_y"] = self.shadow_y_var.get()
+        self.settings["last_shadow_blur"] = self.shadow_blur_var.get()
+        self.settings["last_shadow_color"] = self.shadow_color
+        self.settings["last_shadow_opacity"] = (
+            self.shadow_opacity_var.get()
+        )
+        save_settings(self.settings)
+
+    def shadow_setting_changed(self, value=None):
+        self.save_shadow_settings()
+        self.update_preview()
+
+    def shadow_enabled_changed(self):
+        self.save_shadow_settings()
+        self.refresh_suggested_output()
+        self.update_preview()
+
+    def choose_shadow_color(self):
+        _, selected_color = colorchooser.askcolor(
+            color=self.shadow_color,
+            parent=self.root,
+            title="Select shadow colour",
+        )
+        if selected_color is None:
+            return
+
+        shadow_color = normalize_color(selected_color)
+        if shadow_color is None:
+            self.status_var.set("Unable to use the selected shadow colour.")
+            return
+
+        self.shadow_color = shadow_color
+        self.shadow_color_swatch.configure(background=shadow_color)
+        self.save_shadow_settings()
+        self.update_preview()
 
     def choose_border_color(self):
         _, selected_color = colorchooser.askcolor(
@@ -395,8 +697,16 @@ class AddBorderApp:
             thumbnail = source.resize(
                 (image_width, image_height), resampling
             )
-            preview_image = ImageOps.expand(
-                thumbnail, border=border_pixels, fill=self.border_color
+            preview_image = render_bordered_image(
+                thumbnail,
+                border_pixels,
+                self.border_color,
+                shadow_enabled=self.shadow_enabled_var.get(),
+                shadow_offset_x=round(self.shadow_x_var.get() * scale),
+                shadow_offset_y=round(self.shadow_y_var.get() * scale),
+                shadow_blur=round(self.shadow_blur_var.get() * scale),
+                shadow_color=self.shadow_color,
+                shadow_opacity=self.shadow_opacity_var.get(),
             )
             self.preview_photo = ImageTk.PhotoImage(preview_image)
             self.preview_label.configure(image=self.preview_photo, text="")
@@ -428,10 +738,12 @@ class AddBorderApp:
                 self.preview_source = ImageOps.exif_transpose(
                     original
                 ).convert("RGB")
+            self.update_shadow_offset_limits()
             self.update_preview()
         except Exception as error:
             self.preview_source = None
             self.preview_photo = None
+            self.update_shadow_offset_limits()
             self.preview_label.configure(
                 image="", text=f"Unable to preview image:\n{error}"
             )
@@ -519,9 +831,16 @@ class AddBorderApp:
             shortest_side = min(width, height)
             border = round(shortest_side * percentage / 100.0)
 
-            # Expand equally on all four sides.
-            bordered = ImageOps.expand(
-                image, border=border, fill=self.border_color
+            bordered = render_bordered_image(
+                image,
+                border,
+                self.border_color,
+                shadow_enabled=self.shadow_enabled_var.get(),
+                shadow_offset_x=self.shadow_x_var.get(),
+                shadow_offset_y=self.shadow_y_var.get(),
+                shadow_blur=self.shadow_blur_var.get(),
+                shadow_color=self.shadow_color,
+                shadow_opacity=self.shadow_opacity_var.get(),
             )
 
             # Save as high-quality JPEG.
@@ -534,12 +853,22 @@ class AddBorderApp:
 
             self.settings["last_percentage"] = percentage
             self.settings["last_folder"] = self.last_folder
-            save_settings(self.settings)
+            self.save_shadow_settings()
 
             self.last_output_path = output_path
+            shadow_status = (
+                f"Drop shadow: {self.shadow_color}, "
+                f"offset ({self.shadow_x_var.get()}, "
+                f"{self.shadow_y_var.get()}) px, "
+                f"blur {self.shadow_blur_var.get()} px, "
+                f"opacity {self.shadow_opacity_var.get()}%\n"
+                if self.shadow_enabled_var.get()
+                else "Drop shadow: disabled\n"
+            )
             self.status_var.set(
                 "Border added successfully!\n"
                 f"Border colour: {self.border_color}\n"
+                f"{shadow_status}"
                 f"Percentage: {percentage:.1f}%\n"
                 f"Border per edge: {border} pixels\n"
                 f"Original size: {width} x {height}\n"
