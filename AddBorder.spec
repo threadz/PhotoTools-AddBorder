@@ -1,5 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+from setuptools_scm import get_version
+
+project_dir = Path(SPECPATH)
+build_version = get_version(root=str(project_dir))
+
+version_file = project_dir / 'build' / 'version.txt'
+version_file.parent.mkdir(parents=True, exist_ok=True)
+version_file.write_text(build_version, encoding='utf-8')
 
 a = Analysis(
     ['d:/Users/John/OneDrive/Apps/AddWhiteBorder/AddBorder.py'],
@@ -9,6 +18,7 @@ a = Analysis(
         ('graphics/addBorderIcon32.png', 'graphics'),
         ('graphics/addBorderIcon64.png', 'graphics'),
         ('graphics/addBorderIcon72.png', 'graphics'),
+        (str(version_file), '.'),
     ],
     hiddenimports=[],
     hookspath=[],

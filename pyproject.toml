@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=80", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "addborder"
+dynamic = ["version"]
+dependencies = [
+    "Pillow>=12",
+    "setuptools-scm>=8",
+]
+
+[tool.setuptools]
+py-modules = ["AddBorder"]
+
+[tool.setuptools_scm]
+fallback_version = "0.1.0"
+tag_regex = "^(?:v)?(?P<version>\\d+\\.\\d+\\.\\d+)$"
+version_scheme = "guess-next-dev"
+local_scheme = "node-and-date"

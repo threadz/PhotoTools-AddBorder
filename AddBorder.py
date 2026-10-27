@@ -6,6 +6,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, colorchooser
 from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageOps, ImageTk
+from setuptools_scm import get_version
 
 SETTINGS_FILE = Path.home() / ".addborder_settings.json"
 LEGACY_SETTINGS_FILE = Path.home() / ".white_border_settings.json"
@@ -20,6 +21,20 @@ MAX_SHADOW_BLUR = 100
 MIN_PERCENTAGE = 0.5
 MAX_PERCENTAGE = 60.0
 
+
+def get_app_version():
+    if getattr(sys, "frozen", False):
+        version_file = Path(sys._MEIPASS) / "version.txt"
+        try:
+            return version_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            return "unknown"
+
+    project_dir = Path(__file__).resolve().parent
+    try:
+        return get_version(root=str(project_dir))
+    except (LookupError, OSError):
+        return "unknown"
 
 def icon_asset_path(filename):
     bundle_dir = Path(
@@ -137,7 +152,7 @@ def render_bordered_image(
 class AddBorderApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Add Border")
+        self.root.title(f"Add Border - {get_app_version()}")
         self._icon_images = tuple(
             ImageTk.PhotoImage(file=str(icon_asset_path(filename)))
             for filename in (
