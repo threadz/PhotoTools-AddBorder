@@ -11,13 +11,13 @@ version_file.parent.mkdir(parents=True, exist_ok=True)
 version_file.write_text(build_version, encoding='utf-8')
 
 a = Analysis(
-    ['d:/Users/John/OneDrive/Apps/AddWhiteBorder/AddBorder.py'],
+    [str(project_dir / 'AddBorder.py')],
     pathex=[],
     binaries=[],
     datas=[
-        ('graphics/addBorderIcon32.png', 'graphics'),
-        ('graphics/addBorderIcon64.png', 'graphics'),
-        ('graphics/addBorderIcon72.png', 'graphics'),
+        (str(project_dir / 'graphics' / 'addBorderIcon32.png'), 'graphics'),
+        (str(project_dir / 'graphics' / 'addBorderIcon64.png'), 'graphics'),
+        (str(project_dir / 'graphics' / 'addBorderIcon72.png'), 'graphics'),
         (str(version_file), '.'),
     ],
     hiddenimports=[],
