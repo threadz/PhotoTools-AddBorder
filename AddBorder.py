@@ -215,7 +215,7 @@ class AddBorderApp:
         self.last_auto_output = ""
         self.busy = False
         self.last_output_path = None
-        self.shadow_settings_expanded = True
+        self.shadow_settings_expanded = False
 
         self.build_ui()
         self.root.bind("<Return>", lambda event: self.add_border())
@@ -427,8 +427,11 @@ class AddBorderApp:
         ).grid(row=0, column=0, sticky="w")
         self.shadow_accordion_button = ttk.Button(
             accordion,
-            text="Drop shadow settings  v",
+            text="Drop shadow settings  >",
             command=self.toggle_shadow_settings,
+            state=(
+                tk.NORMAL if self.shadow_enabled_var.get() else tk.DISABLED
+            ),
         )
         self.shadow_accordion_button.grid(
             row=0, column=1, sticky="ew", padx=(8, 0)
@@ -531,6 +534,9 @@ class AddBorderApp:
             self.shadow_settings_frame.grid_remove()
 
     def toggle_shadow_settings(self):
+        if not self.shadow_enabled_var.get():
+            return
+
         self.shadow_settings_expanded = not self.shadow_settings_expanded
         if self.shadow_settings_expanded:
             self.shadow_settings_frame.grid()
@@ -637,6 +643,19 @@ class AddBorderApp:
         self.update_preview()
 
     def shadow_enabled_changed(self):
+        self.shadow_settings_expanded = self.shadow_enabled_var.get()
+        if self.shadow_settings_expanded:
+            self.shadow_settings_frame.grid()
+            label = "Drop shadow settings  v"
+        else:
+            self.shadow_settings_frame.grid_remove()
+            label = "Drop shadow settings  >"
+        self.shadow_accordion_button.configure(
+            text=label,
+            state=(
+                tk.NORMAL if self.shadow_enabled_var.get() else tk.DISABLED
+            ),
+        )
         self.save_shadow_settings()
         self.refresh_suggested_output()
         self.update_preview()
