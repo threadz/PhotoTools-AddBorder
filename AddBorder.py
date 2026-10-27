@@ -1,6 +1,7 @@
 
 import os
 import json
+import sys
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, colorchooser
@@ -18,6 +19,13 @@ DEFAULT_SHADOW_OPACITY = 50
 MAX_SHADOW_BLUR = 100
 MIN_PERCENTAGE = 0.5
 MAX_PERCENTAGE = 60.0
+
+
+def icon_asset_path(filename):
+    bundle_dir = Path(
+        getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)
+    )
+    return bundle_dir / "graphics" / filename
 
 
 def load_settings():
@@ -130,6 +138,15 @@ class AddBorderApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Add Border")
+        self._icon_images = tuple(
+            ImageTk.PhotoImage(file=str(icon_asset_path(filename)))
+            for filename in (
+                "addBorderIcon32.png",
+                "addBorderIcon64.png",
+                "addBorderIcon72.png",
+            )
+        )
+        self.root.iconphoto(True, *self._icon_images)
         # Allow the window and its contents to resize with the user.
         self.root.resizable(True, True)
         self.root.minsize(620, 780)

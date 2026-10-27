@@ -5,7 +5,11 @@ a = Analysis(
     ['d:/Users/John/OneDrive/Apps/AddWhiteBorder/AddBorder.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('graphics/addBorderIcon32.png', 'graphics'),
+        ('graphics/addBorderIcon64.png', 'graphics'),
+        ('graphics/addBorderIcon72.png', 'graphics'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
