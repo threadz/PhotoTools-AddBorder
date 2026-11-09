@@ -6,7 +6,6 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, colorchooser
 from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageOps, ImageTk
-from setuptools_scm import get_version
 
 SETTINGS_FILE = Path.home() / ".addborder_settings.json"
 LEGACY_SETTINGS_FILE = Path.home() / ".white_border_settings.json"
@@ -32,8 +31,10 @@ def get_app_version():
 
     project_dir = Path(__file__).resolve().parent
     try:
+        from setuptools_scm import get_version
+
         return get_version(root=str(project_dir))
-    except (LookupError, OSError):
+    except (ImportError, LookupError, OSError):
         return "unknown"
 
 def icon_asset_path(filename):
@@ -222,6 +223,7 @@ class AddBorderApp:
         )
         self.source_var = tk.StringVar()
         self.output_var = tk.StringVar()
+        self.export_png_var = tk.BooleanVar(value=False)
 
         self.source_path = None
         self.preview_source = None
@@ -268,11 +270,18 @@ class AddBorderApp:
         ).grid(row=1, column=1, sticky="ew")
 
         ttk.Label(
-            main, text="Output file name (including folder):"
+            main,
+            text="Output file name (including folder):"
         ).grid(
-            row=2, column=0, columnspan=2,
+            row=2, column=0,
             sticky="w", pady=(16, 5)
         )
+        ttk.Checkbutton(
+            main,
+            text="Export as png (.png)",
+            variable=self.export_png_var,
+            command=self.output_format_changed
+        ).grid(row=2, column=1, sticky="e", pady=(16, 5))
 
         self.output_entry = ttk.Entry(
             main, textvariable=self.output_var, width=72
@@ -572,6 +581,18 @@ class AddBorderApp:
         if self.output_var.get() != self.last_auto_output:
             self.auto_output = False
 
+    def output_format_changed(self):
+        if self.auto_output:
+            self.refresh_suggested_output()
+            return
+
+        output_text = self.output_var.get().strip()
+        if output_text:
+            extension = ".png" if self.export_png_var.get() else ".jpg"
+            self.output_var.set(
+                str(Path(output_text).with_suffix(extension))
+            )
+
     def make_suggested_output(self):
         if not self.source_path:
             return ""
@@ -582,9 +603,10 @@ class AddBorderApp:
         percentage = float(self.percentage_var.get())
         percentage_text = f"{percentage:.1f}".replace(".", "p")
         shadow_suffix = "_ds" if self.shadow_enabled_var.get() else ""
+        extension = ".png" if self.export_png_var.get() else ".jpg"
         filename = (
             f"{self.source_path.stem}_bordered_"
-            f"{percentage_text}{shadow_suffix}.jpg"
+            f"{percentage_text}{shadow_suffix}{extension}"
         )
         return str(self.source_path.parent / filename)
 
@@ -842,10 +864,9 @@ class AddBorderApp:
 
         output_path = Path(output_text).expanduser()
 
-        # Ensure the output is a JPG.
-        if output_path.suffix.lower() not in (".jpg", ".jpeg"):
-            output_path = output_path.with_suffix(".jpg")
-            self.output_var.set(str(output_path))
+        output_extension = ".png" if self.export_png_var.get() else ".jpg"
+        output_path = output_path.with_suffix(output_extension)
+        self.output_var.set(str(output_path))
 
         try:
             source_resolved = self.source_path.resolve()
@@ -894,13 +915,15 @@ class AddBorderApp:
                 shadow_opacity=self.shadow_opacity_var.get(),
             )
 
-            # Save as high-quality JPEG.
-            bordered.save(
-                output_path,
-                format="JPEG",
-                quality=95,
-                optimize=True
-            )
+            if output_extension == ".png":
+                bordered.save(output_path, format="png")
+            else:
+                bordered.save(
+                    output_path,
+                    format="JPEG",
+                    quality=100,
+                    optimize=True
+                )
 
             self.settings["last_percentage"] = percentage
             self.settings["last_folder"] = self.last_folder
